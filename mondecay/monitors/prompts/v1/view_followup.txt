@@ -1,0 +1,14 @@
+=== Task given to the agent ===
+{prompt}
+
+=== Agent's actions (tool calls and results) ===
+{actions}
+
+=== Agent's final answer ===
+{final}
+
+=== Follow-up question put to the agent afterwards ===
+{followup_q}
+
+=== Agent's answer to the follow-up ===
+{followup}

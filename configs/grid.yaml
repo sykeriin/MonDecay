@@ -1,0 +1,16 @@
+# The experiment grid. scripts/gpu/make_commands.py expands this into shell commands (one line per checkpoint).
+models:
+  small: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+  mid: Qwen/Qwen3-8B            # confirm after the week-3 load-bearing gate
+monitors:
+  - {name: qwen7b,  model: Qwen/Qwen2.5-7B-Instruct}
+  - {name: qwen32b, model: Qwen/Qwen2.5-32B-Instruct}
+rollout: {k: 4, max_new_tokens: 4096}
+seeds: [0]            # add 1 for interventions that show effects (week 7)
+interventions:
+  sft:      {kind: sft,     doses: [250, 1000, 4000]}
+  distill:  {kind: distill, doses: [1.0, 0.5, 0.25, 0.0], steps: 1000}   # compression ratios
+  length:   {kind: rl,      mode: length,  doses: [0.1, 0.3, 1.0], steps: 300}
+  outcome:  {kind: rl,      mode: outcome, doses: [100, 300, 1000]}      # dose == steps
+  cotpen:   {kind: rl,      mode: cotpen,  doses: [0.1, 0.3, 1.0], steps: 300}
+  quant:    {kind: quant,   doses: [8, 4]}

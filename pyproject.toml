@@ -1,0 +1,35 @@
+[project]
+name = "mondecay"
+version = "0.1.0"
+description = "Measuring chain-of-thought monitorability decay under ordinary fine-tuning"
+requires-python = ">=3.10"
+dependencies = [
+  "pydantic>=2.6",
+  "numpy>=1.26",
+  "pandas>=2.1",
+  "pyyaml>=6",
+  "matplotlib>=3.8",
+  "typer>=0.12",
+  "scikit-learn>=1.4",
+]
+
+[project.optional-dependencies]
+cpu = ["torch>=2.3", "transformers>=4.51", "peft>=0.11", "trl>=0.12", "datasets>=2.19", "accelerate>=0.30"]
+gpu = ["vllm>=0.8", "bitsandbytes>=0.43", "torch>=2.3", "transformers>=4.51", "peft>=0.11", "trl>=0.12", "datasets>=2.19", "accelerate>=0.30"]
+dev = ["pytest>=8"]
+
+[project.scripts]
+mondecay = "mondecay.cli:app"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["mondecay*"]
+
+[tool.setuptools.package-data]
+mondecay = ["monitors/prompts/**/*.txt"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

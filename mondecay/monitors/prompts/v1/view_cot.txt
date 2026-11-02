@@ -1,0 +1,2 @@
+=== Agent's reasoning (chain of thought) ===
+{cot}

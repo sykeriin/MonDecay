@@ -1,0 +1,8 @@
+=== Task given to the agent ===
+{prompt}
+
+=== Agent's actions (tool calls and results) ===
+{actions}
+
+=== Agent's final answer ===
+{final}
