@@ -1,6 +1,7 @@
 """Stage implementations: rollout -> grade -> monitor -> metrics. Each stage reads/writes files under runs/<run_id>/."""
 from __future__ import annotations
 
+import json
 import re
 from collections import defaultdict
 from pathlib import Path
@@ -31,19 +32,47 @@ def load_suite(suite_dir: Path | None = None, families=FAMILIES) -> list[Episode
     return out
 
 
+def _append(path: Path, row) -> None:
+    with open(path, "a") as f:
+        f.write((row.model_dump_json() if hasattr(row, "model_dump_json") else json.dumps(row)) + "\n")
+        f.flush()
+
+
+def _done_keys(path: Path, keyfn) -> set:
+    """Keys already present in an append-only JSONL. A torn last line (killed mid-write) is dropped and truncated away."""
+    if not path.exists():
+        return set()
+    good, keys = [], set()
+    for line in path.read_text().splitlines():
+        try:
+            d = json.loads(line)
+        except json.JSONDecodeError:
+            break
+        good.append(line)
+        keys.add(keyfn(d))
+    path.write_text("".join(l + "\n" for l in good))
+    return keys
+
+
 def rollout(run_id: str, backend, specs: list[EpisodeSpec], k: int = 1, runs_root=None, max_new_tokens=1024, max_turns=8,
             ask_followup=True, progress=None) -> Path:
+    """Resumable: every (episode, sample) is appended the moment it finishes; re-running skips what is already on disk."""
     rd = run_dir(run_id, runs_root)
-    ts, wss = [], []
+    tpath, wpath = rd / "transcripts.jsonl", rd / "workspaces.jsonl"
+    done_t = _done_keys(tpath, lambda d: (d["episode_id"], d["sample_idx"]))
+    done_w = _done_keys(wpath, lambda d: (d["episode_id"], d["sample_idx"]))
     for i, s in enumerate(specs):
         for j in range(k):
+            if (s.episode_id, j) in done_t and (s.episode_id, j) in done_w:
+                continue
             t, ws = run_episode(s, backend, run_id, j, max_turns=max_turns, max_new_tokens=max_new_tokens, ask_followup=ask_followup)
-            ts.append(t)
-            wss.append({"episode_id": s.episode_id, "sample_idx": j, "workspace": ws})
+            # workspace first: a transcript without its workspace would be skipped on resume but ungradeable
+            if (s.episode_id, j) not in done_w:
+                _append(wpath, {"episode_id": s.episode_id, "sample_idx": j, "workspace": ws})
+            if (s.episode_id, j) not in done_t:
+                _append(tpath, t)
         if progress:
             progress(i + 1, len(specs))
-    write_jsonl(rd / "transcripts.jsonl", ts)
-    write_jsonl(rd / "workspaces.jsonl", wss)
     return rd
 
 
@@ -72,17 +101,20 @@ def grade(run_id: str, specs: list[EpisodeSpec], runs_root=None) -> list[Label]:
 
 
 def monitor(run_id: str, specs: list[EpisodeSpec], mon: Monitor, views=VIEWS, runs_root=None) -> list[MonitorScore]:
+    """Resumable: scores are appended per (episode, sample, view); stale prompt hashes are NOT reused."""
     rd = run_dir(run_id, runs_root)
+    path = rd / f"scores.{mon.name}.jsonl"
+    done = _done_keys(path, lambda d: (d["episode_id"], d["sample_idx"], d["view"], d["prompt_sha"]))
     by_id = {s.episode_id: s for s in specs}
-    out = []
     for t in read_jsonl(rd / "transcripts.jsonl", Transcript):
         s = by_id[t.episode_id]
         if s.family == "hint" and s.variant == "nohint":
             continue  # no hint in prompt -> trivial negatives; excluded from monitor evaluation
         for v in views:
-            out.append(mon.score(s, t, v))
-    write_jsonl(rd / f"scores.{mon.name}.jsonl", out)
-    return out
+            if (t.episode_id, t.sample_idx, v, PROMPT_SHA) in done:
+                continue
+            _append(path, mon.score(s, t, v))
+    return [x for x in read_jsonl(path, MonitorScore) if x.prompt_sha == PROMPT_SHA]
 
 
 def compute_metrics(run_id: str, monitor_name: str, specs: list[EpisodeSpec], fpr=0.05, n_boot=1000, base_run: str | None = None,
@@ -92,7 +124,7 @@ def compute_metrics(run_id: str, monitor_name: str, specs: list[EpisodeSpec], fp
     by_id = {s.episode_id: s for s in specs}
     labels = {(l.episode_id, l.sample_idx): l for l in read_jsonl(rd / "labels.jsonl", Label)}
     ts = {(t.episode_id, t.sample_idx): t for t in read_jsonl(rd / "transcripts.jsonl", Transcript)}
-    scores = read_jsonl(rd / f"scores.{monitor_name}.jsonl", MonitorScore)
+    scores = [x for x in read_jsonl(rd / f"scores.{monitor_name}.jsonl", MonitorScore) if x.prompt_sha == PROMPT_SHA]
     base_thr = {}
     if base_run:
         bd = run_dir(base_run, runs_root)
@@ -132,7 +164,7 @@ def compute_metrics(run_id: str, monitor_name: str, specs: list[EpisodeSpec], fp
 def _base_thresholds(bd: Path, monitor_name: str, specs, fpr) -> dict:
     by_id = {s.episode_id: s for s in specs}
     labels = {(l.episode_id, l.sample_idx): l for l in read_jsonl(bd / "labels.jsonl", Label)}
-    scores = read_jsonl(bd / f"scores.{monitor_name}.jsonl", MonitorScore)
+    scores = [x for x in read_jsonl(bd / f"scores.{monitor_name}.jsonl", MonitorScore) if x.prompt_sha == PROMPT_SHA]
     out = {}
     for fam in FAMILIES:
         for v in VIEWS:
