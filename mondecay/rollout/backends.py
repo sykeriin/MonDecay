@@ -16,13 +16,34 @@ class Backend(Protocol):
 
 
 class HFBackend:
-    def __init__(self, model: str, adapter: str | None = None, dtype: str = "float32", device: str = "cpu", enable_thinking: bool = True):
+    """transformers backend. device='auto' picks cuda if present. dtype='auto' = float16 on cuda (T4/3050-safe, no bf16), float32 on cpu.
+    load_in_4bit uses bitsandbytes NF4 (CUDA only; UNTESTED in the CPU dev container - validate on the first GPU run)."""
+
+    def __init__(self, model: str, adapter: str | None = None, dtype: str = "auto", device: str = "auto", enable_thinking: bool = True,
+                 load_in_4bit: bool = False):
         import torch
         from transformers import AutoModelForCausalLM, AutoTokenizer
 
-        self.name = f"hf:{model}" + (f"+{adapter}" if adapter else "")
+        if device == "auto":
+            device = "cuda" if torch.cuda.is_available() else "cpu"
+        if dtype == "auto":
+            dtype = "float16" if device == "cuda" else "float32"
+        self.name = f"hf:{model}" + (f"+{adapter}" if adapter else "") + ("@4bit" if load_in_4bit else "")
         self.tok = AutoTokenizer.from_pretrained(model)
-        self.model = AutoModelForCausalLM.from_pretrained(model, torch_dtype=getattr(torch, dtype)).to(device)
+        self.tok.padding_side = "left"          # required for batched causal generation
+        if self.tok.pad_token is None:
+            self.tok.pad_token = self.tok.eos_token
+        kw: dict = {"torch_dtype": getattr(torch, dtype)}
+        if load_in_4bit:
+            if device != "cuda":
+                raise ValueError("load_in_4bit needs a CUDA device")
+            from transformers import BitsAndBytesConfig
+
+            kw["quantization_config"] = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=getattr(torch, dtype))
+            kw["device_map"] = {"": 0}
+        self.model = AutoModelForCausalLM.from_pretrained(model, **kw)
+        if not load_in_4bit:
+            self.model = self.model.to(device)
         if adapter:
             from peft import PeftModel
 
@@ -37,20 +58,28 @@ class HFBackend:
         except TypeError:
             return self.tok.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
 
-    def generate(self, messages, max_new_tokens=1024, temperature=0.6, seed=None):
+    def generate_batch(self, batch: list[list[dict]], max_new_tokens: int = 1024, temperature: float = 0.6, seed: int | None = None,
+                       micro_batch: int = 8) -> list[str]:
+        """Left-padded batched generation, split into micro-batches to bound VRAM. Order preserved."""
         import torch
 
-        if seed is not None:
-            torch.manual_seed(seed)
-        ids = self.tok(self._prompt(messages), return_tensors="pt").to(self.device)
-        with torch.no_grad():
-            out = self.model.generate(**ids, max_new_tokens=max_new_tokens, do_sample=temperature > 0,
-                                      temperature=max(temperature, 1e-5), top_p=0.95, pad_token_id=self.tok.eos_token_id)
-        text = self.tok.decode(out[0][ids["input_ids"].shape[1]:], skip_special_tokens=True)
-        # R1-distill templates put the opening <think> in the prompt; re-add so parsing is uniform.
-        if "</think>" in text and "<think>" not in text:
-            text = "<think>" + text
-        return text
+        out: list[str] = []
+        for i in range(0, len(batch), micro_batch):
+            if seed is not None:
+                torch.manual_seed(seed + i)
+            prompts = [self._prompt(m) for m in batch[i:i + micro_batch]]
+            enc = self.tok(prompts, return_tensors="pt", padding=True).to(self.device)
+            with torch.no_grad():
+                gen = self.model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=temperature > 0,
+                                          temperature=max(temperature, 1e-5), top_p=0.95, pad_token_id=self.tok.pad_token_id)
+            for row in gen:
+                text = self.tok.decode(row[enc["input_ids"].shape[1]:], skip_special_tokens=True)
+                # R1-distill templates put the opening <think> in the prompt; re-add so parsing is uniform.
+                out.append("<think>" + text if "</think>" in text and "<think>" not in text else text)
+        return out
+
+    def generate(self, messages, max_new_tokens=1024, temperature=0.6, seed=None):
+        return self.generate_batch([messages], max_new_tokens, temperature, seed)[0]
 
     def generate_with_prefix(self, messages, prefix: str, max_new_tokens=64) -> str:
         """Greedy continuation after a forced assistant prefix (used by the load-bearing truncation test)."""

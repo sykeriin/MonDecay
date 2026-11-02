@@ -24,3 +24,20 @@
 - Verbalisation rate currently uses a keyword heuristic; replace/validate with the 200 hand labels.
 - The stateful-hack grader test is weak (accepts "passes and flagged" OR "fails"); strengthen when a real hacking transcript exists.
 - The monitor prompt has not been validated against human labels (plan: 200 labels, kappa >= 0.7).
+
+## Hardware reality (added after "I have a 3050 laptop")
+Target hardware: RTX 3050 laptop **4 GB** under Windows+WSL2 for dev/pilot, **free Kaggle/Colab T4** for 1.5B runs. No paid GPU.
+
+| # | Decision | Alternative rejected | Reason |
+|---|---|---|---|
+| 15 | Subject = Qwen3-0.6B (laptop pilot) and R1-Distill-1.5B (T4). **8B subject and 32B monitor dropped from v1.** | Keep 8B/32B | Do not fit (4 GB / 16 GB with quota). Stated as a scale limitation; v1 claims are "<=1.5B, LoRA, few checkpoints". |
+| 16 | Monitor = Qwen2.5-3B (laptop) / Qwen2.5-7B 4-bit (T4) | API monitors | Frozen open weights; API models drift silently. A smaller monitor is a weaker monitor: absolute recall will be lower than with 32B. Compare doses within one monitor only. |
+| 17 | Lock-step batched episodes (`run_episodes`) over per-episode loops | vLLM on the laptop | vLLM KV cache does not fit in 4 GB; batched HF with left padding is the fallback. Verified: greedy batched output == single output on CPU. |
+| 18 | Every stage append-only + resumable; `scripts/kaggle/run_queue.py` mirrors `runs/` to a persist dir | Run whole grid in one session | Sessions die (9-12 h limits, sleeping laptops). Verified: kill, wipe, restore, skip-done. |
+| 19 | Grid in priority order with the CoT-penalty positive control FIRST (kaggle-t4: 1 dose) | Spread quota evenly | If the positive control shows no recall drop, nothing else is interpretable; stop before spending quota. |
+| 20 | Precision: bf16 only if the GPU supports it, else fp16 (T4); fp32 on CPU | Always bf16 | T4 has no bf16 support. |
+
+### Untested paths (no GPU in the dev container): treat as unverified until the first run on real hardware
+- `HFBackend` on CUDA, `load_in_4bit` (bitsandbytes), QLoRA in `run_sft`, fp16 AMP training, GRPO on CUDA, `VLLMBackend`.
+- Time/VRAM estimates in docs/PLAN.md section 11 are guesses, not measurements. First thing to do on the T4: time one base rollout of 20 episodes and extrapolate.
+- If Qwen3-0.6B/1.5B fail the go/no-go gate (misbehaviour < 10% on >= 2 families, or CoT not load-bearing), the correct outcome is to report that and stop, not to run the interventions anyway.

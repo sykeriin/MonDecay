@@ -1,16 +1,28 @@
-# The experiment grid. scripts/gpu/make_commands.py expands this into shell commands (one line per checkpoint).
-models:
-  small: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
-  mid: Qwen/Qwen3-8B            # confirm after the week-3 load-bearing gate
-monitors:
-  - {name: qwen7b,  model: Qwen/Qwen2.5-7B-Instruct}
-  - {name: qwen32b, model: Qwen/Qwen2.5-32B-Instruct}
-rollout: {k: 4, max_new_tokens: 4096}
-seeds: [0]            # add 1 for interventions that show effects (week 7)
-interventions:
-  sft:      {kind: sft,     doses: [250, 1000, 4000]}
-  distill:  {kind: distill, doses: [1.0, 0.5, 0.25, 0.0], steps: 1000}   # compression ratios
-  length:   {kind: rl,      mode: length,  doses: [0.1, 0.3, 1.0], steps: 300}
-  outcome:  {kind: rl,      mode: outcome, doses: [100, 300, 1000]}      # dose == steps
-  cotpen:   {kind: rl,      mode: cotpen,  doses: [0.1, 0.3, 1.0], steps: 300}
-  quant:    {kind: quant,   doses: [8, 4]}
+# Experiment grid, one block per hardware profile. scripts/gpu/make_commands.py --profile <name> expands it into one shell line
+# per step, in PRIORITY ORDER (positive control first). Every command is resumable and idempotent.
+# Sizes: suite episodes = 2*n_hint + 2*n_code_pairs + (n_side + n_side//4);  rollouts = episodes * k.
+profiles:
+  laptop:                          # RTX 3050 4 GB under WSL2: dev + pilot only (see docs/DECISIONS.md)
+    model: Qwen/Qwen3-0.6B
+    suite: {n_hint: 30, n_code_pairs: 30, n_side: 40}
+    rollout: {k: 1, max_new_tokens: 1024, batch_size: 4}
+    monitor: {model: Qwen/Qwen2.5-3B-Instruct, name: qwen3b, load_in_4bit: true}
+    sft_extra: "--qlora --batch 1 --grad-accum 4 --max-len 512"
+    seeds: [0]
+    interventions:
+      sft:     {kind: sft,   doses: [50, 200, 800]}
+      quant:   {kind: quant, doses: [8, 4]}
+  kaggle-t4:                       # free Kaggle/Colab T4 (16 GB, fp16, ~9-12 h sessions, weekly quota)
+    model: deepseek-ai/DeepSeek-R1-Distill-Qwen-1.5B
+    suite: {n_hint: 50, n_code_pairs: 50, n_side: 80}
+    rollout: {k: 2, max_new_tokens: 3072, batch_size: 8}
+    monitor: {model: Qwen/Qwen2.5-7B-Instruct, name: qwen7b, load_in_4bit: true}
+    sft_extra: "--batch 2 --grad-accum 4 --max-len 1024"
+    seeds: [0]
+    interventions:                 # priority order
+      cotpen:   {kind: rl,      mode: cotpen,  doses: [0.3], steps: 150}   # positive control FIRST; if no recall drop, stop
+      sft:      {kind: sft,     doses: [250, 1000]}
+      distill:  {kind: distill, doses: [1.0, 0.5, 0.0], steps: 500}        # compression ratios (1.0 = control)
+      quant:    {kind: quant,   doses: [8, 4]}
+      length:   {kind: rl,      mode: length,  doses: [0.3], steps: 150}
+      outcome:  {kind: rl,      mode: outcome, doses: [150], steps: 150}

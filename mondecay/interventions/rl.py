@@ -87,7 +87,7 @@ def keyword_flag(cot: str) -> bool:
 
 
 def run_grpo(run_id: str, base_model: str, mode: str, dose: float, steps: int, n_train: int = 64, seed: int = 0, num_generations: int = 4,
-             max_completion_length: int = 1024, lora_r: int = 16, lr: float = 5e-6, out_root: Path | None = None, device: str = "cpu",
+             max_completion_length: int = 1024, lora_r: int = 16, lr: float = 5e-6, out_root: Path | None = None, device: str = "auto",
              flag: Callable[[str], bool] = keyword_flag) -> Path:
     from datasets import Dataset
     from peft import LoraConfig
@@ -97,6 +97,12 @@ def run_grpo(run_id: str, base_model: str, mode: str, dose: float, steps: int, n
     from ..schema import RunManifest
     from ..suite.build import build_suite  # noqa: F401  (ensures suite module importable)
 
+    import torch
+
+    if device == "auto":
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    bf16 = device == "cuda" and torch.cuda.is_bf16_supported()
+    fp16 = device == "cuda" and not bf16
     out = run_dir(run_id, out_root) / "adapter"
     if mode == "length":
         items = make_train_math(n_train)
@@ -122,7 +128,7 @@ def run_grpo(run_id: str, base_model: str, mode: str, dose: float, steps: int, n
 
     cfg = GRPOConfig(output_dir=str(out), max_steps=steps, per_device_train_batch_size=num_generations, num_generations=num_generations,
                      max_completion_length=max_completion_length, learning_rate=lr, seed=seed, logging_steps=1, save_strategy="no",
-                     report_to=[], use_cpu=(device == "cpu"), bf16=(device != "cpu"), beta=0.0)
+                     report_to=[], use_cpu=(device == "cpu"), bf16=bf16, fp16=fp16, beta=0.0)
     lora = LoraConfig(r=lora_r, lora_alpha=2 * lora_r, target_modules="all-linear", task_type="CAUSAL_LM")
     trainer = GRPOTrainer(model=base_model, reward_funcs=reward_fn, args=cfg, train_dataset=ds, peft_config=lora)
     trainer.train()

@@ -16,5 +16,14 @@ uv venv .venv && uv pip install -e ".[dev,cpu]"        # GPU box: ".[dev,gpu]"
 python scripts/gpu/make_commands.py configs/grid.yaml small   # expands the grid into per-checkpoint shell lines
 ```
 
+## Running on modest hardware
+```bash
+python scripts/gpu/make_commands.py --profile laptop     > laptop.txt     # RTX 3050 4 GB / WSL2: Qwen3-0.6B pilot, ~7 steps
+python scripts/gpu/make_commands.py --profile kaggle-t4  > kaggle.txt     # free T4: R1-Distill-1.5B, positive control first
+python scripts/kaggle/run_queue.py kaggle.txt --persist /kaggle/working/persist --budget-hours 8.5
+```
+Re-run the same command next session: finished steps are skipped, interrupted ones resume. CUDA/4-bit paths are untested until you run them;
+see `docs/DECISIONS.md` ("Untested paths").
+
 Pipeline: `build-suite -> [train ...] -> rollout -> grade -> monitor -> metrics -> report`; each stage reads/writes `runs/<run_id>/`.
 Ground truth never reads the CoT (impossible tests, counterfactual hints, tool logs). Monitors are frozen: prompt hash stored in every score.

@@ -15,7 +15,7 @@ from .metrics.bootstrap import cluster_bootstrap
 from .metrics.core import auroc, recall_at_fpr, recall_at_threshold, threshold_at_fpr, verbalisation_rate
 from .monitors.monitor import PROMPT_SHA, Monitor
 from .registry import SUITE_DIR, read_jsonl, run_dir, write_jsonl
-from .rollout.agent_loop import run_episode
+from .rollout.agent_loop import run_episodes
 from .schema import EpisodeSpec, Label, MonitorScore, Transcript
 
 FAMILIES = ["hint", "code", "side"]
@@ -55,24 +55,27 @@ def _done_keys(path: Path, keyfn) -> set:
 
 
 def rollout(run_id: str, backend, specs: list[EpisodeSpec], k: int = 1, runs_root=None, max_new_tokens=1024, max_turns=8,
-            ask_followup=True, progress=None) -> Path:
-    """Resumable: every (episode, sample) is appended the moment it finishes; re-running skips what is already on disk."""
+            ask_followup=True, progress=None, batch_size: int = 1) -> Path:
+    """Resumable: every (episode, sample) is appended the moment its batch finishes; re-running skips what is already on disk.
+    batch_size>1 advances that many episodes in lock-step through one batched generate (needs a backend that benefits)."""
     rd = run_dir(run_id, runs_root)
     tpath, wpath = rd / "transcripts.jsonl", rd / "workspaces.jsonl"
     done_t = _done_keys(tpath, lambda d: (d["episode_id"], d["sample_idx"]))
     done_w = _done_keys(wpath, lambda d: (d["episode_id"], d["sample_idx"]))
-    for i, s in enumerate(specs):
-        for j in range(k):
-            if (s.episode_id, j) in done_t and (s.episode_id, j) in done_w:
-                continue
-            t, ws = run_episode(s, backend, run_id, j, max_turns=max_turns, max_new_tokens=max_new_tokens, ask_followup=ask_followup)
+    todo = [(s, j) for s in specs for j in range(k) if not ((s.episode_id, j) in done_t and (s.episode_id, j) in done_w)]
+    total = len(specs) * k
+    finished = total - len(todo)
+    for off in range(0, len(todo), max(1, batch_size)):
+        chunk = todo[off:off + max(1, batch_size)]
+        for (s, j), (t, ws) in zip(chunk, run_episodes(chunk, backend, run_id, max_turns, max_new_tokens, ask_followup=ask_followup)):
             # workspace first: a transcript without its workspace would be skipped on resume but ungradeable
             if (s.episode_id, j) not in done_w:
                 _append(wpath, {"episode_id": s.episode_id, "sample_idx": j, "workspace": ws})
             if (s.episode_id, j) not in done_t:
                 _append(tpath, t)
+        finished += len(chunk)
         if progress:
-            progress(i + 1, len(specs))
+            progress(finished, total)
     return rd
 
 

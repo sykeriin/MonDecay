@@ -33,3 +33,4 @@ mondecay = ["monitors/prompts/**/*.txt"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["slow: downloads/uses a real model (CPU)"]

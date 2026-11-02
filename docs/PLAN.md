@@ -318,3 +318,56 @@ What will **not** be done in this session: any real science result. Smoke output
 - End-to-end smoke: `mondecay rollout --model Qwen/Qwen3-0.6B --n 6` → `grade` → `monitor --backend hf --model Qwen/Qwen3-0.6B` (stand-in monitor) → `metrics` → `report` produces a plot and table without errors.
 - `mondecay train sft --config configs/interventions/sft_smoke.yaml` runs ~10 steps on CPU and writes a LoRA adapter + manifest; that adapter loads in `rollout`.
 - If HF model downloads are blocked by the network policy, I'll report it and fall back to a randomly-initialised tiny model for pipeline tests only.
+
+---
+
+## 11. Update after "I have a 3050 on a laptop" (compute reality)
+
+**Straight answer: a laptop RTX 3050 cannot run the full grid, and probably cannot run the go/no-go gate on the models that matter.** All numbers below are my estimates, not measurements; none were run on that card (this container has no GPU).
+
+**What it is:** laptop 3050 = **4 GB** (most common) or **6 GB** VRAM, Ampere (fp16/bf16 OK), ~190-220 GB/s memory bandwidth, thermally throttled. VRAM is the binding limit.
+
+| Task | 4 GB | 6 GB |
+|---|---|---|
+| Qwen3-0.6B inference / LoRA SFT | fine | fine |
+| R1-Distill-1.5B inference | only 4-bit, context <= ~2k (fp16 weights alone are ~3 GB) | 4-bit comfortable; fp16 tight |
+| 1.5B LoRA SFT | QLoRA + grad-checkpointing + seq <= 512, marginal | QLoRA seq <= 1k, workable |
+| GRPO / RL on 1.5B | no | no (0.6B with ~256-token completions: smoke-test only) |
+| 7B/8B anything; 7B+ monitors | no | no |
+| Monitor = Qwen2.5-3B-Instruct (4-bit) | fits | fits |
+
+**Why the grid is infeasible even where models "fit":** one checkpoint = ~600 episodes x k rollouts x ~2k tokens ~ 1-2.5M generated tokens. At an optimistic ~100 tok/s batched on a 3050, that is ~3-7 h per checkpoint; ~40 checkpoints ~ 120-280 h of continuous laptop time, plus training. R1-style CoTs on these tasks are often >2k tokens, which does not fit a 4 GB KV cache at useful batch sizes. Cloud 4090/A100 + vLLM does the same checkpoint in roughly 10-30 min (estimate).
+
+**Scientific risk this adds:** Qwen3-0.6B (the only comfortable model) most likely fails the week-3 gate (CoT not load-bearing, or ~0% misbehaviour). If so, results on it would be pipeline validation, not findings. Do not present them as findings.
+
+### Recommended revised plan (v1)
+1. **Laptop = dev + pilot machine.** Debug everything, run the gate on Qwen3-0.6B / 4-bit 1.5B on a *reduced* suite (100 episodes/family), run SFT + quantisation pilots (<= ~6 checkpoints). Monitor = Qwen2.5-3B-Instruct 4-bit locally.
+2. **Heavy runs go to rented/free GPU, scoped down:** 1.5B only (drop the 8B subject from v1; state it as a limitation), interventions in priority order: SFT (3 doses), CoT-penalty RL (1 dose, the positive control, run FIRST), distillation (3 ratios), quantisation (2), length penalty (2 doses), outcome-RL last. ~20-25 checkpoints instead of 50. Monitors: Qwen2.5-7B-Instruct (4-bit) on the rented box; 32B dropped unless budget allows. Monitor stage is prefill-only and cheap (~10 min/checkpoint on a 4090, estimate).
+3. **Where:** (a) free tiers (Kaggle/Colab T4: fp16 only, ~16 GB, weekly quota; slow but zero cost), (b) rented RTX 4090 / A100 (RunPod/Vast/Lambda/Modal; I believe a 1.5B-only grid is on the order of tens to ~a hundred+ dollars on a 4090 - **check current prices**, my knowledge ends Jun 2026), (c) MATS/LASR/academic credits if applying. Decide after the gate numbers exist; do not pre-pay.
+4. **Gate unchanged:** misbehaviour >= 10% on >= 2 families and CoT load-bearing on >= 1; if the 1.5B fails it, switch subject (e.g. a larger model on rented GPU) before spending on interventions.
+
+### Code changes this implies (all CPU-testable here except the CUDA paths)
+- `rollout`: **incremental JSONL writes + resume** (laptops sleep/crash; today everything is written only at the end). Highest priority.
+- `HFBackend`: `device=cuda`, fp16, optional 4-bit (bitsandbytes), **batched generation** (left-padded) - single-stream HF generate is too slow. CUDA/4-bit paths are untested until run on your card.
+- `run_sft`: QLoRA option, seq-length/grad-accum knobs, fp16 for non-bf16 cards (T4).
+- `monitor`: batch scoring, 4-bit loading, model choice per hardware (`configs/monitors.yaml` profiles: laptop / rented).
+- `configs/grid.yaml`: add `profile: laptop` (0.6B, 100 eps/family, 6 ckpts) and `profile: cloud-small` (1.5B, 20-25 ckpts); `make_commands.py` reads the profile.
+- `docs/DECISIONS.md`: record the 8B/32B drop and the laptop-vs-cloud split as limitations.
+
+### Answers received -> locked decisions
+- **4 GB VRAM, Windows + WSL2, free GPU tiers only.**
+- Laptop (WSL2, ~3.5 GB usable) = dev + Qwen3-0.6B pilot only. vLLM is skipped on the laptop (KV cache won't fit); use batched HF.
+- 1.5B work goes to **Kaggle/Colab T4 (fp16, no bf16, weekly quota)**. Consequences: grid shrinks to roughly **<= 12-15 checkpoints**, k=1-2, suite ~100 eps/family, **monitor = Qwen2.5-3B/7B 4-bit** (32B dropped), RL limited to the single CoT-penalty positive control at one dose plus, only if quota allows, outcome-RL. Expect weeks of wall-clock because of quotas and 9-12 h session limits => resumable stages are mandatory.
+- **Honest outlook:** with these limits a defensible dose-response paper is unlikely; the realistic deliverable is (a) a working open harness, (b) a go/no-go gate result on 1.5B, (c) a small pilot with explicit "pilot, <=1.5B, few checkpoints" caveats. If the gate fails, say so and stop rather than spend quota on interventions.
+
+### Build order for the next session (what I will implement after approval)
+1. Resumable rollout (append-per-episode JSONL, skip done) + resumable monitor stage. Tests on CPU with ScriptedBackend (kill-and-resume test).
+2. HFBackend: cuda/fp16/4-bit options + batched left-padded generation; `device` auto-detect. CPU-test batching equivalence on Qwen3-0.6B; CUDA/4-bit paths flagged untested.
+3. QLoRA/fp16 knobs in `run_sft`; T4-safe defaults (no bf16).
+4. Profiles in `configs/grid.yaml` (`laptop`, `kaggle-t4`) and `make_commands.py --profile`; `scripts/kaggle/` notebook-runner script that pulls the repo, runs N commands within a session budget, and saves `runs/` to a Kaggle dataset/Drive so work survives session end.
+5. Update `docs/DECISIONS.md` and README with the hardware reality; commit locally.
+6. ~~Blocked on GitHub repo~~ **Done:** pushed to https://github.com/sykeriin/MonDecay (`main`, 2 commits).
+
+### Status after restart
+- **Done:** step 1 (resumable rollout + monitor; 31 tests pass, incl. crash/resume, torn-line repair, stale-prompt-hash filtering); repo pushed.
+- **Remaining, in order:** 2 (HFBackend cuda/fp16/4-bit + batched generation), 3 (QLoRA/fp16 knobs in `run_sft`), 4 (grid profiles `laptop`/`kaggle-t4`, `make_commands.py --profile`, `scripts/kaggle/` runner), 5 (DECISIONS/README hardware notes). CUDA and 4-bit paths cannot be tested in this container; they get flagged untested until run on the 3050 or a T4.
