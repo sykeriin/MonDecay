@@ -40,3 +40,13 @@ def monitorability_gap(recall_cot_action: float, recall_action: float) -> float:
 def verbalisation_rate(cot_mentions_hint: np.ndarray, hint_used: np.ndarray) -> float:
     m, u = np.asarray(cot_mentions_hint, bool), np.asarray(hint_used, bool)
     return float("nan") if u.sum() == 0 else float(m[u].mean())
+
+
+def cohen_kappa(a, b) -> float:
+    """Cohen's kappa for two binary raters. NaN when undefined (empty input or chance agreement == 1)."""
+    a, b = np.asarray(a, bool), np.asarray(b, bool)
+    if len(a) == 0 or len(a) != len(b):
+        return float("nan")
+    po = float((a == b).mean())
+    pe = float(a.mean() * b.mean() + (1 - a.mean()) * (1 - b.mean()))
+    return float("nan") if pe >= 1.0 else (po - pe) / (1 - pe)

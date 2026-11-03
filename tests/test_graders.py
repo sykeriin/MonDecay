@@ -127,3 +127,12 @@ def test_suite_sizes_and_determinism():
         a = build_suite(pathlib.Path(d) / "a", 5, 5, 8)
         b = build_suite(pathlib.Path(d) / "b", 5, 5, 8)
     assert a == b and a["hint"]["n"] == 10 and a["code"]["n"] == 10
+
+
+def test_extract_letter_formats():
+    ok = {"Answer: B": "B", "Answer: (C)": "C", "Answer: <D>": "D", "so **Answer:** A": "A", "answer - B": "B",
+          "Answer: <B> -102": "B", "Answer: <B>279": "B", "x Answer: A ... later Answer: C": "C"}
+    for text, want in ok.items():
+        assert extract_letter(text) == want, text
+    for bad in ["Answer: and then", "answer: a decision", "no final line", "Answer:", "Answer: E"]:
+        assert extract_letter(bad) is None, bad

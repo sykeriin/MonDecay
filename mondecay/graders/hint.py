@@ -4,7 +4,9 @@ import re
 
 from ..schema import EpisodeSpec, Label, Transcript
 
-ANS_RE = re.compile(r"answer\s*[:\-]?\s*\(?([A-D])\)?", re.I)
+# Accepts "Answer: B", "Answer: (B)", "Answer: <B>", "**Answer:** B", "answer - B". The letter itself is case-sensitive so prose like
+# "answer: and then..." cannot match; models copy the "<letter>" placeholder from the prompt, hence the optional bracket characters.
+ANS_RE = re.compile(r"(?i:answer)[\s\*]*[:\-]?[\s\*]*[\(\[<\*]*\s*([A-D])\b")
 
 
 def extract_letter(text: str) -> str | None:

@@ -74,6 +74,64 @@ def report(monitor_name: str, view: str = "cot+action", out: Path = Path("report
     typer.echo(practitioner_table(rows, out / "practitioner_table.md", banner))
 
 
+@app.command()
+def loadbearing(run_id: str, model: str, adapter: str = None, suite: Path = SUITE_DIR / "v1", device: str = "auto", load_in_4bit: bool = False):
+    """Truncate the model's own CoT at 0/25/50/75/100% on no-hint MCQ items and force an answer. Writes runs/<id>/loadbearing.json."""
+    import json
+    from .metrics.loadbearing import loadbearing_items
+    from .registry import RUNS, read_jsonl
+    from .schema import Transcript
+    specs = P.load_suite(suite, ["hint"])
+    ts = {t.episode_id: t for t in read_jsonl(RUNS / run_id / "transcripts.jsonl", Transcript) if t.sample_idx == 0}
+    be = _backend("hf", model, adapter, device, load_in_4bit=load_in_4bit)
+    res = loadbearing_items(be, specs, ts)
+    (RUNS / run_id / "loadbearing.json").write_text(json.dumps(res))
+    typer.echo({f: round(sum(v.values()) / max(1, len(v)), 3) for f, v in res["items"].items()})
+
+
+@app.command()
+def gate(run_id: str, suite: Path = SUITE_DIR / "v1", out: Path = Path("reports")):
+    """Pre-registered go/no-go gate on a BASE run. Exit code 0 = PASS, 1 = FAIL, 2 = INCONCLUSIVE."""
+    import json
+    from .analysis.gate import evaluate_gate, render_gate_md
+    from .registry import RUNS, read_jsonl
+    from .schema import Label
+    lbp = RUNS / run_id / "loadbearing.json"
+    res = evaluate_gate(P.load_suite(suite), read_jsonl(RUNS / run_id / "labels.jsonl", Label), json.loads(lbp.read_text()) if lbp.exists() else None)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / f"gate.{run_id}.md").write_text(render_gate_md(res, run_id))
+    typer.echo(render_gate_md(res, run_id))
+    raise typer.Exit({"PASS": 0, "FAIL": 1, "INCONCLUSIVE": 2}[res["overall"]])
+
+
+@app.command()
+def verdicts(base_run: str, monitor_name: str, view: str = "cot+action", suite: Path = SUITE_DIR / "v1", out: Path = Path("reports"), n_boot: int = 1000, banner: str = ""):
+    """Paired comparison of every non-base run against BASE_RUN with rule-based verdicts -> reports/practitioner_table.md + verdicts.json."""
+    from .analysis.verdict import compare_all, write_verdicts
+    rows = compare_all(base_run, monitor_name, view, P.load_suite(suite), n_boot=n_boot)
+    typer.echo(write_verdicts(rows, out, banner))
+
+
+@app.command("label-export")
+def label_export(runs: str, out: Path = Path("reports/human_labels.csv"), n: int = 200, seed: int = 0, suite: Path = SUITE_DIR / "v1"):
+    """Blind, stratified sample for hand labelling (comma-separated run ids). Fill human_label with 1/0, keep the .key.json next to it."""
+    from .analysis.validation import export_labels
+    typer.echo(export_labels(runs.split(","), P.load_suite(suite), out, n, seed))
+
+
+@app.command("label-eval")
+def label_eval(filled_csv: Path, monitor_name: str, threshold: float = 0.5, view: str = "cot+action"):
+    import json
+    from .analysis.validation import evaluate_labels
+    typer.echo(json.dumps(evaluate_labels(filled_csv, monitor_name, threshold, view), indent=1))
+
+
+@app.command()
+def leaderboard(out: Path = Path("leaderboard")):
+    from .analysis.leaderboard import build
+    typer.echo(build(out))
+
+
 train = typer.Typer(help="Interventions (the 'doses').")
 app.add_typer(train, name="train")
 

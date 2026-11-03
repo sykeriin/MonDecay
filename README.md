@@ -25,5 +25,10 @@ python scripts/kaggle/run_queue.py kaggle.txt --persist /kaggle/working/persist 
 Re-run the same command next session: finished steps are skipped, interrupted ones resume. CUDA/4-bit paths are untested until you run them;
 see `docs/DECISIONS.md` ("Untested paths").
 
+Decision flow after the base run: `mondecay loadbearing <run> <model>` -> `mondecay gate <run>` (exit 0 PASS / 1 FAIL / 2 INCONCLUSIVE) ->
+interventions -> `mondecay verdicts <base_run> <monitor>` (rule-based table) -> `mondecay leaderboard`.
+Validate the monitor before trusting it: `mondecay label-export <runs>` -> fill `human_label` -> `mondecay label-eval <csv> <monitor>`.
+Free-GPU notebook: `scripts/kaggle/mondecay_kaggle.ipynb`.
+
 Pipeline: `build-suite -> [train ...] -> rollout -> grade -> monitor -> metrics -> report`; each stage reads/writes `runs/<run_id>/`.
 Ground truth never reads the CoT (impossible tests, counterfactual hints, tool logs). Monitors are frozen: prompt hash stored in every score.

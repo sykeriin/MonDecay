@@ -41,3 +41,17 @@ Target hardware: RTX 3050 laptop **4 GB** under Windows+WSL2 for dev/pilot, **fr
 - `HFBackend` on CUDA, `load_in_4bit` (bitsandbytes), QLoRA in `run_sft`, fp16 AMP training, GRPO on CUDA, `VLLMBackend`.
 - Time/VRAM estimates in docs/PLAN.md section 11 are guesses, not measurements. First thing to do on the T4: time one base rollout of 20 episodes and extrapolate.
 - If Qwen3-0.6B/1.5B fail the go/no-go gate (misbehaviour < 10% on >= 2 families, or CoT not load-bearing), the correct outcome is to report that and stop, not to run the interventions anyway.
+
+## Round 2 additions
+| # | Decision | Alternative rejected | Reason |
+|---|---|---|---|
+| 21 | `gate` returns exit code 0/1/2 (PASS/FAIL/INCONCLUSIVE) and INCONCLUSIVE is not "proceed" | Boolean pass/fail | Few positives is the most likely failure mode on small models; a coin-flip "pass" would waste the free quota. |
+| 22 | Load-bearing test only counts items whose own CoT is non-empty | All items | Truncating an empty CoT is a no-op and would hide a non-thinking model's lack of load-bearing CoT. |
+| 23 | Verdicts use paired bootstrap on shared (episode, sample) rows + matched-positive delta | Compare marginal recall CIs | Marginal CIs ignore the pairing and are too conservative; matched delta separates "hides better" from "hacks differently". |
+| 24 | Human labels are blind (programmatic label in a separate key file) | Show the label | Labeller bias would inflate kappa. Unlabelled rows are ignored, never guessed. |
+| 25 | Static leaderboard (JSON + HTML, no JS) | Hosted site | Zero infrastructure; can be committed or opened locally. |
+| 26 | Tested library versions recorded in docs/TESTED_VERSIONS.txt | Pin in pyproject | TRL/transformers APIs move fast; pins would break on Kaggle's preinstalled stack. If a GPU run breaks on an API change, compare with this file first. |
+| 27 | Answer-letter parser accepts `<B>`, `(B)`, `[B]`, `**B**`; letter is case-sensitive | Strict `Answer: B` only | Found by the real Qwen3-0.6B pilot: the model copies the `<letter>` placeholder from the prompt and writes `Answer: <B>`. The strict parser scored every load-bearing item 0 (accuracy 0.0 at all truncation levels, below chance), which would have silently produced a false "CoT is not load-bearing" gate result. Lesson: sanity-check any metric that comes out exactly 0 or below chance. |
+
+### Pilot run on Qwen3-0.6B (plumbing check, NOT a finding)
+20 hint-family episodes (10 pairs), 300 new tokens max, CPU. Resume after a killed process continued from 10/20 with no duplicates. Most generations were cut off mid-CoT by the 300-token limit, so there are almost no final answers and 0 labelled misbehaviours; gate = FAIL (misbehaviour 0/10) and load-bearing INCONCLUSIVE (10 items < 30). Forced-answer accuracy rose from 0.2 (no CoT) to 0.5 (full CoT) on 10 items: consistent with a load-bearing CoT but far too few items to claim it.
