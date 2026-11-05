@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Callable, Protocol
 
+from .parse import prepend_injected_think
+
 
 class Backend(Protocol):
     name: str
@@ -72,10 +74,9 @@ class HFBackend:
             with torch.no_grad():
                 gen = self.model.generate(**enc, max_new_tokens=max_new_tokens, do_sample=temperature > 0,
                                           temperature=max(temperature, 1e-5), top_p=0.95, pad_token_id=self.tok.pad_token_id)
-            for row in gen:
+            for prompt, row in zip(prompts, gen):
                 text = self.tok.decode(row[enc["input_ids"].shape[1]:], skip_special_tokens=True)
-                # R1-distill templates put the opening <think> in the prompt; re-add so parsing is uniform.
-                out.append("<think>" + text if "</think>" in text and "<think>" not in text else text)
+                out.append(prepend_injected_think(prompt, text))   # R1-style templates end the prompt with <think>
         return out
 
     def generate(self, messages, max_new_tokens=1024, temperature=0.6, seed=None):
@@ -129,10 +130,14 @@ class VLLMBackend:
 
         sp = SamplingParams(max_tokens=max_new_tokens, temperature=temperature, top_p=0.95, seed=seed)
         outs = self.llm.chat(batch, sp, lora_request=self._lora(), chat_template_kwargs={"enable_thinking": self.enable_thinking})
+        tok = self.llm.get_tokenizer()
         res = []
-        for o in outs:
-            t = o.outputs[0].text
-            res.append("<think>" + t if "</think>" in t and "<think>" not in t else t)
+        for msgs, o in zip(batch, outs):
+            try:
+                prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True, enable_thinking=self.enable_thinking)
+            except TypeError:
+                prompt = tok.apply_chat_template(msgs, tokenize=False, add_generation_prompt=True)
+            res.append(prepend_injected_think(prompt, o.outputs[0].text))
         return res
 
     def generate(self, messages, max_new_tokens=2048, temperature=0.6, seed=None):

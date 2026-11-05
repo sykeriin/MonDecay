@@ -97,7 +97,12 @@ def gate(run_id: str, suite: Path = SUITE_DIR / "v1", out: Path = Path("reports"
     from .registry import RUNS, read_jsonl
     from .schema import Label
     lbp = RUNS / run_id / "loadbearing.json"
-    res = evaluate_gate(P.load_suite(suite), read_jsonl(RUNS / run_id / "labels.jsonl", Label), json.loads(lbp.read_text()) if lbp.exists() else None)
+    from .rollout.parse import is_truncated
+    from .schema import Transcript
+    ts = read_jsonl(RUNS / run_id / "transcripts.jsonl", Transcript)
+    trunc = sum(bool(t.raw_turns) and is_truncated(t.raw_turns[-1]) for t in ts) / max(1, len(ts))
+    res = evaluate_gate(P.load_suite(suite), read_jsonl(RUNS / run_id / "labels.jsonl", Label), json.loads(lbp.read_text()) if lbp.exists() else None,
+                        truncated_rate=trunc)
     out.mkdir(parents=True, exist_ok=True)
     (out / f"gate.{run_id}.md").write_text(render_gate_md(res, run_id))
     typer.echo(render_gate_md(res, run_id))

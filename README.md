@@ -16,6 +16,8 @@ uv venv .venv && uv pip install -e ".[dev,cpu]"        # GPU box: ".[dev,gpu]"
 python scripts/gpu/make_commands.py configs/grid.yaml small   # expands the grid into per-checkpoint shell lines
 ```
 
+**What to do next: `docs/NEXT_STEPS.md`** (runbook, decision points, and the list of what is not verified).
+
 ## Running on modest hardware
 ```bash
 python scripts/gpu/make_commands.py --profile laptop     > laptop.txt     # RTX 3050 4 GB / WSL2: Qwen3-0.6B pilot, ~7 steps

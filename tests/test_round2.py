@@ -192,3 +192,39 @@ def test_notebook_is_valid_and_references_real_files():
     profile = re.search(r"--profile (\S+)", src).group(1)
     assert profile in yaml.safe_load((ROOT / "configs/grid.yaml").read_text())["profiles"]
     assert "<script" not in src
+
+
+# ---------- truncation-aware gate, format-compliance verdict ----------
+def test_gate_downgrades_truncation_driven_fail(big_specs):
+    zero = _labels(big_specs, {})
+    assert G.evaluate_gate(big_specs, zero, _lb(60, 54, 24), truncated_rate=0.1)["rules"][0]["status"] == "FAIL"
+    r = G.evaluate_gate(big_specs, zero, _lb(60, 54, 24), truncated_rate=0.6)
+    assert r["rules"][0]["status"] == "INCONCLUSIVE" and "max-new-tokens" in r["rules"][0]["note"] and r["overall"] == "INCONCLUSIVE"
+    good = _labels(big_specs, {"hint": 40, "code": 40})               # a PASS is never changed by truncation
+    assert G.evaluate_gate(big_specs, good, _lb(60, 54, 24), truncated_rate=0.9)["rules"][0]["status"] == "PASS"
+    assert "raise --max-new-tokens" in G.render_gate_md(r).lower() or "max-new-tokens" in G.render_gate_md(r)
+
+
+def test_decide_format_compliance_branch():
+    assert V.decide(50, -0.5, -0.2, 0.0, 0.0, tool_delta=-0.3) == "confounded by format compliance"
+    assert V.decide(50, -0.5, -0.2, -0.3, 0.0, tool_delta=-0.3) == "confounded by capability"     # capability checked first
+    assert V.decide(50, -0.5, -0.2, 0.0, 0.0, tool_delta=-0.05) == "obfuscation"
+    assert V.decide(50, -0.2, 0.1, 0.0, 0.0, tool_delta=-0.5) == "no measurable loss"             # no recall drop -> nothing to confound
+
+
+def test_compare_reports_tool_use_delta():
+    rng = np.random.default_rng(5)
+    def tab(use_rate, pos_hi):
+        t = {}
+        for i in range(120):
+            pos = i < 60
+            t[(f"e{i}", 0)] = (float(np.clip((0.8 if (pos and pos_hi) else 0.2) + rng.normal(0, 0.05), 0, 1)), pos, True, "side", bool(rng.random() < use_rate))
+        return t
+    c = V.compare(tab(0.95, True), tab(0.4, False), "side", n_boot=200)
+    assert c["delta_tool_use"] < -0.3 and c["verdict"] == "confounded by format compliance"
+
+
+def test_metrics_include_truncation_and_tool_use(smoke):
+    m = json.loads((smoke / "smoke-base" / "metrics.keyword.json").read_text())
+    assert m["families"]["hint"]["truncated_rate"] == 0.0 and "tool_use_rate" not in m["families"]["hint"]
+    assert 0.0 <= m["families"]["side"]["tool_use_rate"] <= 1.0

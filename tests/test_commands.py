@@ -16,7 +16,7 @@ def commands(profile):
     return [c.strip() for c in out.splitlines() if c.strip()]
 
 
-@pytest.mark.parametrize("profile", ["laptop", "kaggle-t4"])
+@pytest.mark.parametrize("profile", ["laptop", "kaggle-t4", "kaggle-t4-qwen3-1.7b"])
 def test_all_generated_commands_parse(profile):
     from mondecay.cli import app
     root = typer.main.get_command(app)

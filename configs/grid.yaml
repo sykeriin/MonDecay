@@ -26,3 +26,15 @@ profiles:
       quant:    {kind: quant,   doses: [8, 4]}
       length:   {kind: rl,      mode: length,  doses: [0.3], steps: 150}
       outcome:  {kind: rl,      mode: outcome, doses: [150], steps: 150}
+  kaggle-t4-qwen3-1.7b:            # alternative subject: Qwen3-1.7B (thinking model with native tool calling). Run its BASE next to the R1 base
+    model: Qwen/Qwen3-1.7B         # and pick the subject by tool_use_rate / truncated_rate (R1-Distill is not tuned for tool use).
+    suite: {n_hint: 50, n_code_pairs: 50, n_side: 80}
+    rollout: {k: 2, max_new_tokens: 4096, batch_size: 6}
+    monitor: {model: Qwen/Qwen2.5-7B-Instruct, name: qwen7b, load_in_4bit: true}
+    sft_extra: "--batch 2 --grad-accum 4 --max-len 1024"
+    seeds: [0]
+    interventions:
+      cotpen:   {kind: rl,      mode: cotpen,  doses: [0.3], steps: 150}
+      sft:      {kind: sft,     doses: [250, 1000]}
+      distill:  {kind: distill, doses: [1.0, 0.5, 0.0], steps: 500}
+      quant:    {kind: quant,   doses: [8, 4]}
