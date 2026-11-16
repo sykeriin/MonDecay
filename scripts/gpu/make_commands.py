@@ -12,7 +12,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument("--profile", default="kaggle-t4")
 ap.add_argument("--grid", default="configs/grid.yaml")
 a = ap.parse_args()
-P = yaml.safe_load(open(a.grid))["profiles"][a.profile]
+P = yaml.safe_load(open(a.grid, encoding="utf-8"))["profiles"][a.profile]
 model, k, mnt, bs = P["model"], P["rollout"]["k"], P["rollout"]["max_new_tokens"], P["rollout"]["batch_size"]
 mon = P["monitor"]
 suite = f"data/suite/{a.profile}"

@@ -23,7 +23,7 @@ a = ap.parse_args()
 
 persist = Path(a.persist); persist.mkdir(parents=True, exist_ok=True)
 done_f = persist / "done.json"
-done = set(json.loads(done_f.read_text())) if done_f.exists() else set()
+done = set(json.loads(done_f.read_text(encoding="utf-8"))) if done_f.exists() else set()
 t0 = time.time()
 MIRROR = ["runs", "data"]
 
@@ -35,7 +35,7 @@ def mirror(src_to_persist: bool):
 
 if not a.dry_run:
     mirror(False)                       # restore previous sessions' work
-for line in Path(a.commands).read_text().splitlines():
+for line in Path(a.commands).read_text(encoding="utf-8").splitlines():
     line = line.strip()
     if not line or line.startswith("#"):
         continue
