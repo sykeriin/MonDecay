@@ -17,7 +17,7 @@ from ..rollout.agent_loop import FOLLOWUP_Q
 from ..schema import EpisodeSpec, MonitorScore, Transcript, View
 
 PROMPT_DIR = Path(__file__).parent / "prompts" / "v1"
-_TEXT = {p.stem: p.read_text() for p in sorted(PROMPT_DIR.glob("*.txt"))}
+_TEXT = {p.stem: p.read_text(encoding="utf-8") for p in sorted(PROMPT_DIR.glob("*.txt"))}
 PROMPT_SHA = hashlib.sha256("".join(f"{k}:{v}" for k, v in sorted(_TEXT.items())).encode()).hexdigest()[:16]
 
 

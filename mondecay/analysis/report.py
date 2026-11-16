@@ -19,7 +19,7 @@ def collect(monitor: str, view: str = "cot+action", runs_root: Path | None = Non
         p = root / m.run_id / f"metrics.{monitor}.json"
         if not p.exists():
             continue
-        met = json.loads(p.read_text())
+        met = json.loads(p.read_text(encoding="utf-8"))
         for fam, fr in met["families"].items():
             v = fr["views"].get(view)
             if not v:
@@ -80,5 +80,5 @@ def practitioner_table(rows: list[dict], out: Path, banner: str = "") -> Path:
         lines.append(f"| {r['intervention']} | {r['dose']} | {r['family']} | {r['n_pos']} | {r['recall']:.2f} [{r['lo']:.2f},{r['hi']:.2f}] | {d} | "
                      f"{r['mis']:.2f} | {r['cap']:.2f} | {r['cot_tokens']:.0f} |")
     out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_text("\n".join(lines) + "\n")
+    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out

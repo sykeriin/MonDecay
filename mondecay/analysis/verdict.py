@@ -106,7 +106,7 @@ def render_table(rows: list[dict], banner: str = "") -> str:
 
 def write_verdicts(rows: list[dict], out_dir: Path, banner: str = "") -> Path:
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "verdicts.json").write_text(json.dumps(rows, indent=1, default=float))
+    (out_dir / "verdicts.json").write_text(json.dumps(rows, indent=1, default=float), encoding="utf-8")
     p = out_dir / "practitioner_table.md"
-    p.write_text(render_table(rows, banner))
+    p.write_text(render_table(rows, banner), encoding="utf-8")
     return p

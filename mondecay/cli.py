@@ -85,7 +85,7 @@ def loadbearing(run_id: str, model: str, adapter: str = None, suite: Path = SUIT
     ts = {t.episode_id: t for t in read_jsonl(RUNS / run_id / "transcripts.jsonl", Transcript) if t.sample_idx == 0}
     be = _backend("hf", model, adapter, device, load_in_4bit=load_in_4bit)
     res = loadbearing_items(be, specs, ts)
-    (RUNS / run_id / "loadbearing.json").write_text(json.dumps(res))
+    (RUNS / run_id / "loadbearing.json").write_text(json.dumps(res), encoding="utf-8")
     typer.echo({f: round(sum(v.values()) / max(1, len(v)), 3) for f, v in res["items"].items()})
 
 
@@ -101,10 +101,10 @@ def gate(run_id: str, suite: Path = SUITE_DIR / "v1", out: Path = Path("reports"
     from .schema import Transcript
     ts = read_jsonl(RUNS / run_id / "transcripts.jsonl", Transcript)
     trunc = sum(bool(t.raw_turns) and is_truncated(t.raw_turns[-1]) for t in ts) / max(1, len(ts))
-    res = evaluate_gate(P.load_suite(suite), read_jsonl(RUNS / run_id / "labels.jsonl", Label), json.loads(lbp.read_text()) if lbp.exists() else None,
+    res = evaluate_gate(P.load_suite(suite), read_jsonl(RUNS / run_id / "labels.jsonl", Label), json.loads(lbp.read_text(encoding="utf-8")) if lbp.exists() else None,
                         truncated_rate=trunc)
     out.mkdir(parents=True, exist_ok=True)
-    (out / f"gate.{run_id}.md").write_text(render_gate_md(res, run_id))
+    (out / f"gate.{run_id}.md").write_text(render_gate_md(res, run_id), encoding="utf-8")
     typer.echo(render_gate_md(res, run_id))
     raise typer.Exit({"PASS": 0, "FAIL": 1, "INCONCLUSIVE": 2}[res["overall"]])
 
@@ -172,7 +172,7 @@ def train_distill(run_id: str, model: str, traces: Path, ratio: float = typer.Op
     import json
     from .interventions.data import build_distill_set
     from .interventions.sft import run_sft
-    rows = build_distill_set([json.loads(l) for l in traces.read_text().splitlines() if l.strip()], ratio)
+    rows = build_distill_set([json.loads(l) for l in traces.read_text(encoding="utf-8").splitlines() if l.strip()], ratio)
     run_sft(run_id, model, rows, steps, "distill", round(1 - ratio, 3), seed, device=device, batch=batch, grad_accum=grad_accum, max_len=max_len, qlora=qlora, extra={"ratio": ratio})
 
 

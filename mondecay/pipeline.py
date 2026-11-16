@@ -34,7 +34,7 @@ def load_suite(suite_dir: Path | None = None, families=FAMILIES) -> list[Episode
 
 
 def _append(path: Path, row) -> None:
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write((row.model_dump_json() if hasattr(row, "model_dump_json") else json.dumps(row)) + "\n")
         f.flush()
 
@@ -44,14 +44,14 @@ def _done_keys(path: Path, keyfn) -> set:
     if not path.exists():
         return set()
     good, keys = [], set()
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         try:
             d = json.loads(line)
         except json.JSONDecodeError:
             break
         good.append(line)
         keys.add(keyfn(d))
-    path.write_text("".join(l + "\n" for l in good))
+    path.write_text("".join(l + "\n" for l in good), encoding="utf-8")
     return keys
 
 
@@ -165,7 +165,7 @@ def compute_metrics(run_id: str, monitor_name: str, specs: list[EpisodeSpec], fp
             fr["monitorability_gap"] = fr["views"]["cot+action"]["recall"] - fr["views"]["action"]["recall"]
         res["families"][fam] = fr
     import json
-    (rd / f"metrics.{monitor_name}.json").write_text(json.dumps(res, indent=2, default=float))
+    (rd / f"metrics.{monitor_name}.json").write_text(json.dumps(res, indent=2, default=float), encoding="utf-8")
     return res
 
 

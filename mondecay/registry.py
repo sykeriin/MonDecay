@@ -29,29 +29,29 @@ def save_manifest(m: RunManifest, runs_root: Path | None = None) -> Path:
     if m.git_sha is None:
         m.git_sha = git_sha()
     p = run_dir(m.run_id, runs_root) / "manifest.json"
-    p.write_text(m.model_dump_json(indent=2))
+    p.write_text(m.model_dump_json(indent=2), encoding="utf-8")
     return p
 
 
 def load_manifest(run_id: str, runs_root: Path | None = None) -> RunManifest:
-    return RunManifest.model_validate_json((run_dir(run_id, runs_root) / "manifest.json").read_text())
+    return RunManifest.model_validate_json((run_dir(run_id, runs_root) / "manifest.json").read_text(encoding="utf-8"))
 
 
 def list_runs(runs_root: Path | None = None) -> list[RunManifest]:
     root = runs_root or RUNS
-    return [RunManifest.model_validate_json(p.read_text()) for p in sorted(root.glob("*/manifest.json"))]
+    return [RunManifest.model_validate_json(p.read_text(encoding="utf-8")) for p in sorted(root.glob("*/manifest.json"))]
 
 
 def write_jsonl(path: Path, rows) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         for r in rows:
             f.write((r.model_dump_json() if hasattr(r, "model_dump_json") else json.dumps(r)) + "\n")
 
 
 def read_jsonl(path: Path, model=None):
     out = []
-    with open(path) as f:
+    with open(path, encoding="utf-8") as f:
         for line in f:
             line = line.strip()
             if line:

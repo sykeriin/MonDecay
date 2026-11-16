@@ -80,4 +80,4 @@ def assert_disjoint(train_prompts: list[str], suite_prompts: list[str], prefix: 
 
 def write_jsonl_rows(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n")
+    path.write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")

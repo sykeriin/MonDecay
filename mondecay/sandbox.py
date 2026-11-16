@@ -7,13 +7,17 @@ Mitigations: tmpdir cwd, scrubbed env, CPU/memory/file rlimits, wall-clock timeo
 from __future__ import annotations
 
 import os
-import resource
 import shutil
 import subprocess
 import sys
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    import resource
+except ImportError:  # Windows: no rlimits, only the wall-clock timeout applies
+    resource = None
 
 
 @dataclass
@@ -60,14 +64,17 @@ def run_in_dir(files: dict[str, str], argv: list[str], timeout: float = 20.0, me
             if root.resolve() not in p.parents and p != root.resolve():
                 raise ValueError(f"path escapes sandbox: {rel}")
             p.parent.mkdir(parents=True, exist_ok=True)
-            p.write_text(content)
+            p.write_text(content, encoding="utf-8")
         argv = [sys.executable if a == "python" else a for a in argv]
         if _can_unshare():
             argv = ["unshare", "-n", *argv]
         env = {"PATH": os.environ.get("PATH", ""), "HOME": d, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONHASHSEED": "0"}
+        if resource is None:
+            env["SYSTEMROOT"] = os.environ.get("SYSTEMROOT", "")
+        kw = {"preexec_fn": _limits(int(timeout) + 2, mem_mb)} if resource is not None else {}
         try:
             r = subprocess.run(argv, cwd=d, env=env, capture_output=True, text=True, timeout=timeout,
-                               preexec_fn=_limits(int(timeout) + 2, mem_mb))
+                               encoding="utf-8", errors="replace", **kw)
             return ExecResult(r.returncode, r.stdout[-8000:], r.stderr[-8000:])
         except subprocess.TimeoutExpired as e:
             return ExecResult(-9, (e.stdout or b"").decode(errors="ignore")[-4000:] if isinstance(e.stdout, bytes) else (e.stdout or ""), "timeout", True)

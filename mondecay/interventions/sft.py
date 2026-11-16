@@ -50,5 +50,5 @@ def run_sft(run_id: str, base_model: str, rows: list[dict], steps: int, interven
     trainer.model.save_pretrained(str(out))
     save_manifest(RunManifest(run_id=run_id, base_model=base_model, intervention=intervention, dose=dose if dose is not None else steps,
                               seed=seed, adapter_path=str(out), data_sha=data_sha(rows), extra={"lora_r": lora_r, "lr": lr, **(extra or {})}), out_root)
-    (out.parent / "train_log.json").write_text(json.dumps(trainer.state.log_history, indent=1))
+    (out.parent / "train_log.json").write_text(json.dumps(trainer.state.log_history, indent=1), encoding="utf-8")
     return out

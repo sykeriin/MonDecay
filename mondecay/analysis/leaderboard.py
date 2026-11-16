@@ -15,7 +15,7 @@ def collect_rows(runs_root: Path | None = None) -> list[dict]:
     rows = []
     for m in list_runs(root):
         for p in sorted((root / m.run_id).glob("metrics.*.json")):
-            met = json.loads(p.read_text())
+            met = json.loads(p.read_text(encoding="utf-8"))
             for fam, fr in met["families"].items():
                 v = fr["views"].get(VIEW)
                 if not v:
@@ -48,6 +48,6 @@ def render_html(rows: list[dict], title: str = "MonDecay leaderboard") -> str:
 def build(out_dir: Path = Path("leaderboard"), runs_root: Path | None = None) -> Path:
     rows = collect_rows(runs_root)
     out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "data.json").write_text(json.dumps(rows, indent=1))
-    (out_dir / "index.html").write_text(render_html(rows))
+    (out_dir / "data.json").write_text(json.dumps(rows, indent=1), encoding="utf-8")
+    (out_dir / "index.html").write_text(render_html(rows), encoding="utf-8")
     return out_dir / "index.html"
